@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec.backup
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config
+.rule_lint_baseline.json

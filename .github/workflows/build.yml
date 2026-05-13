@@ -1,0 +1,82 @@
+# Build standalone Rule Lint binaries for macOS and Windows.
+#
+# Triggers:
+#   - Tagged push (v*) — attaches artifacts to the GitHub Release.
+#   - Manual dispatch  — for ad-hoc builds, no release upload.
+
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: RuleLint-macos
+          - os: windows-latest
+            artifact: RuleLint-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Build
+        shell: bash
+        run: python build_release.py
+
+      - name: Smoke-test (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          test -d dist/RuleLint.app
+          file dist/RuleLint.app/Contents/MacOS/RuleLint
+
+      - name: Smoke-test (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/RuleLint.exe)) {
+            throw "RuleLint.exe not produced"
+          }
+          Get-Item dist/RuleLint.exe
+
+      - name: Package macOS bundle
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd dist
+          zip -r RuleLint-macos.zip RuleLint.app
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/RuleLint-macos.zip
+            dist/RuleLint.exe
+          if-no-files-found: ignore
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/RuleLint-macos.zip
+            dist/RuleLint.exe
+          fail_on_unmatched_files: false
