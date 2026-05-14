@@ -155,6 +155,42 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _INDEXED_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\[(.+)\]$")
 _CALL_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*;?\s*$",
                       re.DOTALL)
+# Used by parse_tlist to find {NAME} entries and bare integer gaps.
+_TLIST_TOKEN_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}|(\d+)")
+
+
+def parse_tlist(s: str) -> List[Tuple[str, object]]:
+    """Parse a tlist string like 'l{ABSTIN}{ANDAGE}9{ACONCN}' into a list
+    of (kind, value) items where kind is 'test' (value=str) or 'gap'
+    (value=int rows to skip).
+
+    A leading single-char justify flag (l/r/c, any case) is consumed and
+    discarded. Malformed brace pairs (e.g. '[MANVOL}' typo) are skipped.
+    """
+    if not s:
+        return []
+    # Skip leading justify flag if present
+    i = 0
+    if s[0] in "lLrRcC" and len(s) > 1 and s[1] in "{0123456789":
+        i = 1
+    items: List[Tuple[str, object]] = []
+    while i < len(s):
+        m = _TLIST_TOKEN_RE.match(s, i)
+        if not m:
+            i += 1
+            continue
+        name, gap = m.group(1), m.group(2)
+        if name is not None:
+            items.append(("test", name))
+        else:
+            items.append(("gap", int(gap)))
+        i = m.end()
+    return items
+
+
+def _looks_like_tlist(s: str) -> bool:
+    """Heuristic: does this string contain at least one {NAME} pair?"""
+    return "{" in s and "}" in s
 
 
 class Scope:
@@ -335,8 +371,33 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
                 test_name = resolved
         except ValueError:
             pass
-        # `output_testname` displays the test mnemonic itself; other
-        # field kinds display the corresponding value.
+
+        # tlist expansion: a string like 'l{T1}{T2}9{T3}' is a vertical
+        # test-list. The runtime stacks one test per row, with digit
+        # tokens between names acting as blank-row gaps. Render one
+        # cell per test entry.
+        if _looks_like_tlist(test_name):
+            cy = y
+            for kind_tag, value in parse_tlist(test_name):
+                if kind_tag == "gap":
+                    cy += int(value)  # type: ignore[arg-type]
+                    continue
+                tname = str(value)
+                if label == "TESTNAME":
+                    cell_text = tname
+                elif label == "UNITS":
+                    cell_text = "[u]"
+                elif label == "REFRANGE":
+                    cell_text = "[ref]"
+                else:
+                    cell_text = f"[{tname}]"
+                result.commands.append(RenderCmd(
+                    x=x, y=cy, kind="field", text=cell_text,
+                    width=len(cell_text), source_line=line))
+                cy += 1
+            return
+
+        # Plain single-test argument — one cell.
         if label == "TESTNAME":
             text_str = test_name or "[TESTNAME]"
         else:
