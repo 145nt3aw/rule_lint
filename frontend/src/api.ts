@@ -3,6 +3,7 @@ import type {
   CodeEntry,
   FileLintResult,
   FixResult,
+  ImportResult,
 } from "./types";
 
 // Backend lives at /api both in dev (via Vite proxy) and prod (same origin).
@@ -59,6 +60,37 @@ export async function runFix(file: File): Promise<FixResult> {
   fd.append("file", file);
   const resp = await fetch(`${API}/fix`, { method: "POST", body: fd });
   return jsonOrThrow(resp);
+}
+
+export async function importXlsx(file: File): Promise<ImportResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${API}/import-xlsx`, { method: "POST", body: fd });
+  return jsonOrThrow(resp);
+}
+
+export async function importXlsxZip(file: File): Promise<Blob> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${API}/import-xlsx/zip`, {
+    method: "POST",
+    body: fd,
+  });
+  if (!resp.ok) {
+    let detail = `${resp.status} ${resp.statusText}`;
+    try {
+      const body = await resp.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      // not JSON
+    }
+    throw new Error(detail);
+  }
+  return resp.blob();
+}
+
+export function templateUrl(): string {
+  return `${API}/import-xlsx/template`;
 }
 
 export async function fetchCodes(): Promise<CodeEntry[]> {

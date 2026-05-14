@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { lintBatch, lintSingle, runFix } from "./api";
+import {
+  importXlsx,
+  lintBatch,
+  lintSingle,
+  runFix,
+  templateUrl,
+} from "./api";
 import { CodesPanel } from "./components/CodesPanel";
 import { Dropzone } from "./components/Dropzone";
 import { FixPanel } from "./components/FixPanel";
@@ -9,9 +15,15 @@ import {
   type LintOptionsState,
 } from "./components/LintOptionsBar";
 import { Summary } from "./components/Summary";
-import type { BatchLintResult, FileLintResult, FixResult } from "./types";
+import { WorkflowImportPanel } from "./components/WorkflowImportPanel";
+import type {
+  BatchLintResult,
+  FileLintResult,
+  FixResult,
+  ImportResult,
+} from "./types";
 
-type Tab = "single" | "batch" | "codes";
+type Tab = "single" | "batch" | "workflow" | "codes";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("single");
@@ -29,6 +41,10 @@ export function App() {
   // batch state
   const [pickedZip, setPickedZip] = useState<File | null>(null);
   const [batchResult, setBatchResult] = useState<BatchLintResult | null>(null);
+
+  // workflow-import state
+  const [pickedWorkflow, setPickedWorkflow] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +82,21 @@ export function App() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       setFixResult(null);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function runImport() {
+    if (!pickedWorkflow) return;
+    setError(null);
+    setRunning(true);
+    try {
+      const result = await importXlsx(pickedWorkflow);
+      setImportResult(result);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+      setImportResult(null);
     } finally {
       setRunning(false);
     }
@@ -109,6 +140,12 @@ export function App() {
           Multi-file (zip)
         </button>
         <button
+          className={tab === "workflow" ? "active" : ""}
+          onClick={() => setTab("workflow")}
+        >
+          Workflow import
+        </button>
+        <button
           className={tab === "codes" ? "active" : ""}
           onClick={() => setTab("codes")}
         >
@@ -116,7 +153,7 @@ export function App() {
         </button>
       </div>
 
-      {tab !== "codes" && (
+      {tab !== "codes" && tab !== "workflow" && (
         <LintOptionsBar value={options} onChange={setOptions} />
       )}
 
@@ -216,6 +253,56 @@ export function App() {
                 </div>
               ))}
             </>
+          )}
+        </>
+      )}
+
+      {tab === "workflow" && (
+        <>
+          <div className="run-row" style={{ marginTop: 0 }}>
+            <div className="picked">
+              Need the column layout? Save a starter template:
+            </div>
+            <a
+              className="primary"
+              href={templateUrl()}
+              style={{ textDecoration: "none" }}
+            >
+              Save Template CSV
+            </a>
+          </div>
+          <Dropzone
+            accept=".xlsx,.csv"
+            prompt="Drop a workflow .xlsx or .csv here"
+            hint="Generates draft .eq files split by Action Category (Req Add / Req Delete / Modify by department)"
+            onFile={(f) => {
+              setPickedWorkflow(f);
+              setImportResult(null);
+              setError(null);
+            }}
+          />
+          <div className="run-row">
+            <div className="picked">
+              {pickedWorkflow ? (
+                <>Picked: <strong>{pickedWorkflow.name}</strong></>
+              ) : (
+                "No spreadsheet picked."
+              )}
+            </div>
+            <button
+              className="primary"
+              disabled={!pickedWorkflow || running}
+              onClick={runImport}
+            >
+              {running ? "Importing…" : "Import"}
+            </button>
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+          {importResult && pickedWorkflow && (
+            <WorkflowImportPanel
+              result={importResult}
+              sourceFile={pickedWorkflow}
+            />
           )}
         </>
       )}

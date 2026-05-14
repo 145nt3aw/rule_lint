@@ -47,3 +47,23 @@ export interface FixResult {
   remaining_warnings: number;
   remaining_info: number;
 }
+
+export interface GeneratedFile {
+  filename: string;
+  content: string;
+  lines: number;
+}
+
+export interface ImportIssue {
+  row_number: number;
+  severity: string;
+  message: string;
+}
+
+export interface ImportResult {
+  rows_parsed: number;
+  files: GeneratedFile[];
+  issues: ImportIssue[];
+  total_errors: number;
+  total_warnings: number;
+}

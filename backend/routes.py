@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import io
+import tempfile
 import zipfile
 from dataclasses import asdict
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 import rule_lint
+import rule_lint_xlsx
 from rule_lint import (
     EQ_TYPE_ALIASES, ISSUE_CODES, apply_fixes, apply_suppressions,
     build_suppress_map, lint, load_testlist,
@@ -72,6 +75,26 @@ class FixResult(BaseModel):
     remaining_errors: int
     remaining_warnings: int
     remaining_info: int
+
+
+class GeneratedFile(BaseModel):
+    filename: str
+    content: str
+    lines: int
+
+
+class ImportIssueOut(BaseModel):
+    row_number: int
+    severity: str
+    message: str
+
+
+class ImportResult(BaseModel):
+    rows_parsed: int
+    files: List[GeneratedFile]
+    issues: List[ImportIssueOut]
+    total_errors: int
+    total_warnings: int
 
 
 # ---------------------------------------------------------- helpers
@@ -193,6 +216,125 @@ async def lint_single(
         eqtype=_normalise_eqtype(eqtype),
         strict=strict,
         testlist=tl_set,
+    )
+
+
+@router.get("/import-xlsx/template")
+def get_xlsx_template() -> Response:
+    """Return a CSV template with the workflow-importer column headers
+    plus a few example rows. Browser-friendly download.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False,
+                                    newline="") as tf:
+        tmp_path = tf.name
+    try:
+        rule_lint_xlsx.write_csv_template(tmp_path)
+        content = Path(tmp_path).read_bytes()
+    finally:
+        try:
+            Path(tmp_path).unlink()
+        except OSError:
+            pass
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition":
+                'attachment; filename="workflow_template.csv"',
+        },
+    )
+
+
+@router.post("/import-xlsx", response_model=ImportResult)
+async def import_xlsx(
+    file: UploadFile = File(...),
+) -> ImportResult:
+    """Parse a workflow spreadsheet (.xlsx or .csv) and return the generated
+    .eq files plus any row-level issues.
+
+    Files are returned inline as JSON; the UI offers per-file download via
+    Blob. For "download everything as one zip", use /api/import-xlsx/zip.
+    """
+    name = (file.filename or "").lower()
+    if not (name.endswith(".xlsx") or name.endswith(".csv")):
+        raise HTTPException(400, "Expected an .xlsx or .csv upload.")
+
+    raw = await _read_upload(file, max_bytes=_MAX_FILE_BYTES)
+
+    # rule_lint_xlsx reads from a path; round-trip through a temp file.
+    suffix = ".xlsx" if name.endswith(".xlsx") else ".csv"
+    with tempfile.NamedTemporaryFile("wb", suffix=suffix, delete=False) as tf:
+        tf.write(raw)
+        tmp_path = tf.name
+    try:
+        try:
+            result = rule_lint_xlsx.import_spreadsheet(tmp_path)
+        except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+            raise HTTPException(400, f"Could not parse spreadsheet: {exc}")
+    finally:
+        try:
+            Path(tmp_path).unlink()
+        except OSError:
+            pass
+
+    return ImportResult(
+        rows_parsed=len(result.rows),
+        files=[
+            GeneratedFile(filename=fname, content=content,
+                          lines=content.count("\n"))
+            for fname, content in sorted(result.files.items())
+        ],
+        issues=[
+            ImportIssueOut(row_number=i.row_number, severity=i.severity,
+                           message=i.message)
+            for i in result.issues
+        ],
+        total_errors=len(result.errors),
+        total_warnings=len(result.warnings),
+    )
+
+
+@router.post("/import-xlsx/zip")
+async def import_xlsx_zip(file: UploadFile = File(...)) -> Response:
+    """Same as /import-xlsx but returns the generated files as one .zip
+    download instead of inline JSON. Convenience endpoint for the
+    'Download all' button.
+    """
+    name = (file.filename or "").lower()
+    if not (name.endswith(".xlsx") or name.endswith(".csv")):
+        raise HTTPException(400, "Expected an .xlsx or .csv upload.")
+
+    raw = await _read_upload(file, max_bytes=_MAX_FILE_BYTES)
+    suffix = ".xlsx" if name.endswith(".xlsx") else ".csv"
+    with tempfile.NamedTemporaryFile("wb", suffix=suffix, delete=False) as tf:
+        tf.write(raw)
+        tmp_path = tf.name
+    try:
+        try:
+            result = rule_lint_xlsx.import_spreadsheet(tmp_path)
+        except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+            raise HTTPException(400, f"Could not parse spreadsheet: {exc}")
+    finally:
+        try:
+            Path(tmp_path).unlink()
+        except OSError:
+            pass
+
+    if not result.files:
+        raise HTTPException(
+            400, "No .eq files generated — the spreadsheet produced no usable rows.")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, content in sorted(result.files.items()):
+            zf.writestr(fname, content)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition":
+                'attachment; filename="generated_rules.zip"',
+        },
     )
 
 
