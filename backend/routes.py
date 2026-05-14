@@ -128,6 +128,9 @@ class PreviewRequest(BaseModel):
     text: str
     grid_width: int = 120
     grid_height: int = 25
+    # Optional name → body map for include_mask() resolution. Names match
+    # case-insensitively against the include_mask string literal.
+    includes: Optional[Dict[str, str]] = None
 
 
 # ---------------------------------------------------------- helpers
@@ -264,7 +267,8 @@ def preview(req: PreviewRequest) -> PreviewResultOut:
     gw = max(20, min(req.grid_width, 200))
     gh = max(5, min(req.grid_height, 100))
     try:
-        result = render_mask(req.text, grid_width=gw, grid_height=gh)
+        result = render_mask(req.text, grid_width=gw, grid_height=gh,
+                             includes=req.includes or {})
     except Exception as exc:   # noqa: BLE001
         # Fall back to a 400 with the parser-level error rather than 500.
         raise HTTPException(400, f"Mask parse failed: {exc}")

@@ -20,18 +20,24 @@ if (test_ordered("CREAT")) {
 `;
 
 const GRID_WIDTHS = [80, 120, 132];
-const GRID_HEIGHTS = [25, 43];
+const GRID_HEIGHTS = [25, 43, 60];
+
+/** Strip a common .mask / .eq / .rule suffix to derive an include name. */
+function deriveIncludeName(filename: string): string {
+  return filename.replace(/\.(mask|eq|rule|txt)$/i, "");
+}
 
 export function PreviewPanel() {
   const [text, setText] = useState(DEFAULT_MASK);
   const [width, setWidth] = useState(120);
   const [height, setHeight] = useState(25);
+  const [includes, setIncludes] = useState<Record<string, string>>({});
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const debounceRef = useRef<number | null>(null);
+  const includeInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Debounced live re-parse on text / dimensions change.
   useEffect(() => {
     if (debounceRef.current !== null) {
       window.clearTimeout(debounceRef.current);
@@ -39,7 +45,7 @@ export function PreviewPanel() {
     debounceRef.current = window.setTimeout(async () => {
       setRunning(true);
       try {
-        const r = await previewMask(text, width, height);
+        const r = await previewMask(text, width, height, includes);
         setResult(r);
         setError(null);
       } catch (e: unknown) {
@@ -53,7 +59,28 @@ export function PreviewPanel() {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [text, width, height]);
+  }, [text, width, height, includes]);
+
+  async function addIncludeFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const updates: Record<string, string> = {};
+    for (const file of Array.from(files)) {
+      const name = deriveIncludeName(file.name);
+      updates[name] = await file.text();
+    }
+    setIncludes((cur) => ({ ...cur, ...updates }));
+    if (includeInputRef.current) includeInputRef.current.value = "";
+  }
+
+  function removeInclude(name: string) {
+    setIncludes((cur) => {
+      const next = { ...cur };
+      delete next[name];
+      return next;
+    });
+  }
+
+  const includeNames = Object.keys(includes).sort();
 
   return (
     <div className="preview-panel">
@@ -88,9 +115,48 @@ export function PreviewPanel() {
           {running
             ? "rendering…"
             : result
-            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} placed · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded (superset preview)`
+            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded · ${includeNames.length} include${includeNames.length === 1 ? "" : "s"} loaded`
             : "no input"}
         </span>
+      </div>
+
+      <div className="include-bar">
+        <button
+          className="primary"
+          style={{ padding: "4px 10px", fontSize: 12 }}
+          onClick={() => includeInputRef.current?.click()}
+        >
+          Add include file(s)…
+        </button>
+        <input
+          ref={includeInputRef}
+          type="file"
+          accept=".mask,.eq,.rule,.txt"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => addIncludeFiles(e.target.files)}
+        />
+        {includeNames.length === 0 && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            No includes attached. include_mask("X") references will warn
+            until X is supplied here.
+          </span>
+        )}
+        {includeNames.map((name) => (
+          <span key={name} className="include-chip">
+            <strong>{name}</strong>
+            <span style={{ color: "var(--muted)", marginLeft: 4 }}>
+              ({includes[name].split("\n").length} lines)
+            </span>
+            <button
+              onClick={() => removeInclude(name)}
+              title="Remove this include"
+              aria-label={`Remove ${name}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
       </div>
 
       <div className="preview-split">

@@ -98,11 +98,17 @@ export async function previewMask(
   text: string,
   gridWidth = 120,
   gridHeight = 25,
+  includes: Record<string, string> = {},
 ): Promise<PreviewResult> {
   const resp = await fetch(`${API}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, grid_width: gridWidth, grid_height: gridHeight }),
+    body: JSON.stringify({
+      text,
+      grid_width: gridWidth,
+      grid_height: gridHeight,
+      includes,
+    }),
   });
   return jsonOrThrow(resp);
 }

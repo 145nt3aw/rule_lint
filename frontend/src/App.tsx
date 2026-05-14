@@ -119,7 +119,7 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${tab === "preview" ? "app-wide" : ""}`}>
       <header>
         <h1>Rule Lint</h1>
         <span className="subtitle">

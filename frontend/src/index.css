@@ -311,16 +311,22 @@ footer {
 
 /* ---------- mask previewer ---------- */
 
+/* Preview tab uses the full viewport — 120-col grids need ~720px just
+   for cells, and the editor doesn't need 50% of horizontal space. */
+.app.app-wide {
+  max-width: none;
+}
+
 .preview-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(360px, 1fr) minmax(720px, 3fr);
   gap: 12px;
   margin-top: 8px;
 }
 
 .preview-editor textarea {
   width: 100%;
-  min-height: 480px;
+  min-height: 680px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   border: 1px solid var(--border);
@@ -337,7 +343,45 @@ footer {
   padding: 8px 4px;
   border-radius: 6px;
   overflow: auto;
-  min-height: 480px;
+  min-height: 680px;
+}
+
+.include-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.include-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: #e7f0ff;
+  color: var(--accent);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.include-chip button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+}
+
+.include-chip button:hover {
+  color: var(--error);
 }
 
 .mask-grid {

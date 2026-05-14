@@ -28,6 +28,16 @@ import rule_lint
 from rule_lint import Stmt
 
 
+# Match include_mask("name") calls so we can substitute them before parsing.
+# Mirrors the regex in rule_lint.INCLUDE_RE but kept local to avoid importing
+# a private detail. Whitespace and single-quoted forms are also tolerated.
+_INCLUDE_CALL_RE = re.compile(
+    r"\binclude_mask\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*;",
+    re.IGNORECASE,
+)
+_INCLUDE_DEPTH_LIMIT = 32
+
+
 # ---------------------------------------------------------- output table
 # (subroutine, (x_arg_idx, y_arg_idx, kind, text_idx or None,
 #               width_idx or None)) — indices into the comma-split args.
@@ -437,18 +447,62 @@ def _find_assignment_op(s: str) -> int:
     return -1
 
 
-def render_mask(source: str, *, grid_width: int = 120,
-                grid_height: int = 25) -> PreviewResult:
-    """Top-level entry point. Parses the mask and returns a PreviewResult."""
-    result = PreviewResult(grid_width=grid_width, grid_height=grid_height)
+def _resolve_includes(source: str, includes: Dict[str, str],
+                      result: "PreviewResult", *,
+                      depth: int = 0, seen: Optional[set] = None) -> str:
+    """Substitute every include_mask("X") call with the body of X from the
+    includes map. Recurses for nested includes; tracks 'seen' to break
+    cycles. Unresolved includes are replaced with an empty body and a
+    warning is recorded on result.warnings.
+    """
+    if depth > _INCLUDE_DEPTH_LIMIT:
+        result.warnings.append(PreviewWarning(
+            line=0,
+            message=f"include depth limit ({_INCLUDE_DEPTH_LIMIT}) exceeded"))
+        return source
+    seen = set() if seen is None else seen
+    norm = {k.lower(): v for k, v in includes.items()}
 
-    # rule_lint.parse_statements consumes already-comment-stripped text;
-    # use the helper that mirrors what the linter does internally.
-    code = rule_lint.strip_comments(source)
+    def _sub(m: re.Match) -> str:
+        name = m.group(1)
+        key = name.lower()
+        if key in seen:
+            result.warnings.append(PreviewWarning(
+                line=source.count("\n", 0, m.start()) + 1,
+                message=f"include_mask({name!r}) is recursive — skipped"))
+            return ""
+        body = norm.get(key)
+        if body is None:
+            result.warnings.append(PreviewWarning(
+                line=source.count("\n", 0, m.start()) + 1,
+                message=f"include_mask({name!r}) not provided — body skipped"))
+            return ""
+        # Recurse for nested includes
+        sub_seen = seen | {key}
+        expanded = _resolve_includes(body, includes, result,
+                                     depth=depth + 1, seen=sub_seen)
+        return f"\n/* >>> include_mask({name!r}) */\n{expanded}\n/* <<< */\n"
+
+    return _INCLUDE_CALL_RE.sub(_sub, source)
+
+
+def render_mask(source: str, *, grid_width: int = 120,
+                grid_height: int = 25,
+                includes: Optional[Dict[str, str]] = None) -> PreviewResult:
+    """Top-level entry point. Parses the mask and returns a PreviewResult.
+
+    If `includes` is supplied (name → body map), every include_mask("X")
+    call in the source (and in any included body) is substituted before
+    parsing. Unresolved or cyclic includes generate warnings.
+    """
+    result = PreviewResult(grid_width=grid_width, grid_height=grid_height)
+    expanded = _resolve_includes(source, includes or {}, result)
+
+    code = rule_lint.strip_comments(expanded)
     statements = rule_lint.parse_statements(code)
 
     scope = Scope()
     for s in statements:
-        _walk_stmt(s, source, scope, result)
+        _walk_stmt(s, expanded, scope, result)
 
     return result
