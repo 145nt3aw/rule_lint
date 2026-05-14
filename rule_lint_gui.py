@@ -41,6 +41,7 @@ from rule_lint import (  # noqa: E402
     lint_file, format_sarif_multi, format_json_multi, ISSUE_CODES,
     EQ_TYPE_ALIASES, SUBROUTINES,
 )
+import rule_lint_xlsx  # noqa: E402
 
 
 APP_TITLE = "Rule Lint"
@@ -69,6 +70,7 @@ class RuleLintGUI:
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
+        self._build_menubar()
         # Use a vertical paned window so the user can resize results area
         outer = ttk.Frame(self.root, padding=8)
         outer.pack(fill=tk.BOTH, expand=True)
@@ -77,6 +79,28 @@ class RuleLintGUI:
         self._build_action_frame(outer)
         self._build_results_frame(outer)
         self._build_statusbar(outer)
+
+    def _build_menubar(self) -> None:
+        menubar = tk.Menu(self.root)
+
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Open Rule File…", command=self._pick_file)
+        file_menu.add_separator()
+        file_menu.add_command(label="Import Workflow XLSX…",
+                              command=self.import_workflow)
+        file_menu.add_command(label="Save Workflow CSV Template…",
+                              command=self.save_workflow_template)
+        file_menu.add_separator()
+        file_menu.add_command(label="Quit", command=self.root.destroy)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="Issue Code Reference…",
+                              command=self.show_codes)
+        help_menu.add_command(label="About…", command=self.show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.root.config(menu=menubar)
 
     def _build_input_frame(self, parent: ttk.Frame) -> None:
         frm = ttk.LabelFrame(parent, text="Input", padding=8)
@@ -430,6 +454,121 @@ class RuleLintGUI:
             f"This GUI wraps the rule_lint.py CLI for end users on "
             f"clean macOS / Windows installs."
         )
+
+    # ----------------------------------------------------- workflow import
+    def save_workflow_template(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="Save Workflow CSV Template",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("All files", "*.*")],
+            initialfile="workflow_template.csv",
+        )
+        if not path:
+            return
+        try:
+            rule_lint_xlsx.write_csv_template(path)
+        except OSError as exc:
+            messagebox.showerror(APP_TITLE, f"Could not write template:\n{exc}")
+            return
+        messagebox.showinfo(
+            APP_TITLE,
+            f"Template saved to:\n{path}\n\n"
+            f"Open it in Excel, fill in your workflow rows, then save as "
+            f".xlsx (or keep as CSV) and use File → Import Workflow XLSX.",
+        )
+
+    def import_workflow(self) -> None:
+        in_path = filedialog.askopenfilename(
+            title="Import Workflow Spreadsheet",
+            filetypes=[
+                ("Workflow spreadsheet", "*.xlsx *.csv"),
+                ("Excel", "*.xlsx"),
+                ("CSV", "*.csv"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not in_path:
+            return
+        out_dir = filedialog.askdirectory(
+            title="Choose Output Directory for Generated .eq Files")
+        if not out_dir:
+            return
+
+        self.status.set(f"Importing {Path(in_path).name}…")
+        self.root.update_idletasks()
+
+        def worker():
+            try:
+                result = rule_lint_xlsx.import_spreadsheet(in_path)
+                written: List[str] = []
+                if result.files:
+                    written = rule_lint_xlsx.write_files(result, out_dir)
+                self.root.after(
+                    0, lambda: self._render_import_result(
+                        in_path, out_dir, result, written))
+            except Exception as exc:
+                self.root.after(0, lambda: self._report_error(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_import_result(self, in_path: str, out_dir: str,
+                              result, written: List[str]) -> None:
+        n_rows = len(result.rows)
+        n_files = len(written)
+        n_err = len(result.errors)
+        n_warn = len(result.warnings)
+        self.status.set(
+            f"Imported {Path(in_path).name}: {n_rows} rule(s), "
+            f"{n_files} file(s), {n_err} error(s), {n_warn} warning(s)")
+
+        win = tk.Toplevel(self.root)
+        win.title("Workflow Import Summary")
+        win.geometry("780x520")
+
+        # Header
+        hdr = ttk.Frame(win, padding=8)
+        hdr.pack(fill=tk.X)
+        ttk.Label(hdr, text=f"Source: {in_path}").pack(anchor="w")
+        ttk.Label(hdr, text=f"Output: {out_dir}").pack(anchor="w")
+        ttk.Label(
+            hdr,
+            text=(f"{n_rows} row(s) parsed · {n_files} file(s) written · "
+                  f"{n_err} error(s) · {n_warn} warning(s)"),
+        ).pack(anchor="w", pady=(4, 0))
+
+        paned = ttk.PanedWindow(win, orient=tk.VERTICAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # Files written
+        files_frame = ttk.LabelFrame(paned, text="Files written", padding=4)
+        files_list = tk.Listbox(files_frame)
+        for p in written:
+            files_list.insert(tk.END, p)
+        files_list.pack(fill=tk.BOTH, expand=True)
+        paned.add(files_frame, weight=1)
+
+        # Issues
+        issues_frame = ttk.LabelFrame(paned, text="Issues", padding=4)
+        cols = ("severity", "row", "message")
+        tree = ttk.Treeview(issues_frame, columns=cols, show="headings",
+                            selectmode="browse")
+        tree.heading("severity", text="Severity")
+        tree.heading("row", text="Row")
+        tree.heading("message", text="Message")
+        tree.column("severity", width=80, anchor="w")
+        tree.column("row", width=60, anchor="e")
+        tree.column("message", width=600, anchor="w")
+        for issue in result.issues:
+            tag = SEVERITY_TAGS.get(issue.severity, "")
+            tree.insert("", tk.END,
+                        values=(issue.severity, issue.row_number, issue.message),
+                        tags=(tag,))
+        for tag, colour in SEVERITY_COLOURS.items():
+            tree.tag_configure(tag, foreground=colour)
+        tree.pack(fill=tk.BOTH, expand=True)
+        paned.add(issues_frame, weight=2)
+
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 8))
 
 
 def main() -> int:

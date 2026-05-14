@@ -44,6 +44,14 @@ The first launch may show a security warning — see [docs/PACKAGING.md](docs/PA
 
 ---
 
+## Workflow spreadsheet importer (GUI)
+
+The GUI also has a **File → Import Workflow XLSX…** action that turns a
+structured spreadsheet of rules into draft `.eq` files, grouped by
+**Req Add** / **Req Delete** / **Modify** (the last split by Department).
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md#workflow-xlsx-importer) for the
+column schema and the trigger/action DSL.
+
 ## What it checks
 
 24 distinct issue codes across these categories:

@@ -613,6 +613,107 @@ between the linter and the doc — pull the latest tree.
 
 ---
 
+## Workflow XLSX importer
+
+The GUI (`rule_lint_gui.py`) can import a structured workflow spreadsheet and
+generate draft `.eq` rule-engine files from it. Available under **File →
+Import Workflow XLSX…**. To get a starter template: **File → Save Workflow CSV
+Template…**.
+
+The importer is GUI-only and reads `.xlsx` or `.csv` with the same column
+shape. Implementation lives in [`../rule_lint_xlsx.py`](../rule_lint_xlsx.py).
+
+### Spreadsheet columns
+
+Header row is required. Column order is flexible; the importer matches by
+name (case-insensitive).
+
+| Column | Required | Purpose |
+|---|---|---|
+| `ERN` | yes | Rule identifier, e.g. `B.00521.7.01`. Appears in the generated comment. |
+| `Department` | yes | `BIOCHM`, `HAEM`, `MICRO`, … Drives the file split for Modify rules. |
+| `Workflow` | no | Free-text label, e.g. `AFP`. Appears in the generated comment. |
+| `Action Category` | yes | `Req Add`, `Req Delete`, or `Modify`. Drives the output filename. |
+| `Trigger Test` | yes | Primary test mnemonic used in the `if` condition. |
+| `Trigger Op` | no | See operator list below. Defaults to `ordered`. |
+| `Trigger Value` | depends | Numeric value for comparison / range operators. |
+| `Extra Condition` | no | `;`-separated extra clauses ANDed into the `if`. See DSL below. |
+| `Action Target` | depends | For Req Add/Delete: a test mnemonic. For Modify: `verb:args`. |
+| `Notes` | no | Free text, copied to the generated comment. |
+
+### Output file split
+
+| Action Category | Output file |
+|---|---|
+| Req Add | `requests_add.eq` (all Req Add rows) |
+| Req Delete | `requests_delete.eq` (all Req Delete rows) |
+| Modify | `modify_<DEPARTMENT>.eq` (one file per Department) |
+
+Each row becomes one `if … then … endif` block, headed by a `/* ERN: … */`
+comment so reviewers can trace generated code back to the spreadsheet row.
+
+### Trigger operators
+
+| Trigger Op | Generated condition |
+|---|---|
+| `ordered` (default) | `test_ordered("TEST")` |
+| `not_ordered` | `not test_ordered("TEST")` |
+| `resulted` | `test_result("TEST") != ""` |
+| `not_resulted` | `test_result("TEST") == ""` |
+| `numeric` | resulted **and** numeric value > 0 |
+| `<` `<=` `>` `>=` `=` | `ee_value("TEST",0,0) <op> VALUE` |
+| `range` | both bounds inclusive, Trigger Value `lo-hi` |
+| `critical_high` / `critical_low` | `h1flagmatch("TEST","HH")` / `"LL"` |
+| `flag_h` / `flag_l` / `flag_x` | `h1flagmatch("TEST","H")` etc. |
+
+### Extra-condition DSL
+
+Extra Condition is one or more `prefix:argument` clauses separated by `;`.
+All are ANDed into the trigger.
+
+| Prefix | Example | Generated |
+|---|---|---|
+| `ordered` | `ordered:CREAT` | `test_ordered("CREAT")` |
+| `resulted` | `resulted:UREA` | `test_result("UREA") != ""` |
+| `value` | `value:K>=6.2` | `ee_value("K",0,0) >= 6.2` |
+| `range` | `range:TSH=0.5-4.0` | both bounds inclusive |
+| `critical` | `critical:NA` | `h1flagmatch("NA","HH")` |
+| `flag` | `flag:K=H` | `h1flagmatch("K","H")` |
+| `age` | `age:>16` | `AGE_DAYS > 5840` (years × 365) |
+| `sex` | `sex:F` | `SEX == "F"` |
+| `inpatient` | `inpatient:yes` | `INPATIENT == 1` |
+| `facility` | `facility:GP` | `FACILITY_TYPE == "GP"` |
+| `coded` | `coded:CORTREAT=CORPRE` | `test_result("CORTREAT") == "CORPRE"` |
+
+### Modify verbs (Action Target for Modify rows)
+
+Multiple verbs can be chained with `;`.
+
+| Verb | Example | Emits |
+|---|---|---|
+| `validate` | `validate:TSH` | `validate("TSH");` |
+| `list` | `list:RP->TELEPHONE` | `listinsert_test("RP","TELEPHONE");` |
+| `unlist` | `unlist:RP->TELEPHONE` | `listremove_test("RP","TELEPHONE");` |
+| `note` | `note:CORT=CORTPREN` | `add_testnote("CORT", codedcomment("CORTPREN"));` |
+| `value` | `value:K=5.2` | `test_setvalue("K", 5.2);` |
+| `coded` | `coded:STATUS=PEND` | `test_setvalue("STATUS", "PEND");` |
+| `calc` | `calc:EGFR=ee_value("CREAT",0,0)*0.85` | `test_setvalue("EGFR", <expr>);` |
+| `request_add` | `request_add:AFPROCHE` | `add_request("AFPROCHE");` |
+| `request_delete` | `request_delete:CICLO_REFLEX` | `remove_request("CICLO_REFLEX");` |
+
+### Reviewing generated code
+
+Generated files are **drafts**, not final. After import:
+
+1. The Workflow Import Summary dialog lists files written and any
+   row-level errors/warnings.
+2. Open each `.eq` in the main linter (**File → Open Rule File…**) and
+   run **Run Lint** to catch any structural issues.
+3. Review each `/* ERN: … */` block against the source row before merging
+   into the engine.
+
+---
+
 ## Architecture
 
 For people extending the linter.

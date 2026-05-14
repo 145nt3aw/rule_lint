@@ -29,6 +29,7 @@ datas = [
 hiddenimports = [
     "rule_lint",
     "rule_catalogue",
+    "rule_lint_xlsx",
     # tkinter is stdlib but PyInstaller sometimes needs an explicit hint
     "tkinter",
     "tkinter.ttk",
