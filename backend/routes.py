@@ -13,8 +13,8 @@ from pydantic import BaseModel
 
 import rule_lint
 from rule_lint import (
-    EQ_TYPE_ALIASES, ISSUE_CODES, apply_suppressions, build_suppress_map,
-    lint, load_testlist,
+    EQ_TYPE_ALIASES, ISSUE_CODES, apply_fixes, apply_suppressions,
+    build_suppress_map, lint, load_testlist,
 )
 
 
@@ -53,6 +53,25 @@ class CodeEntry(BaseModel):
     code: str
     severity: str
     description: str
+
+
+class FixEntry(BaseModel):
+    line: int
+    description: str
+
+
+class FixResult(BaseModel):
+    filename: str
+    fixed: bool                # True if at least one fix was applied
+    fixes: List[FixEntry]
+    original_size: int
+    fixed_size: int
+    fixed_text: str            # the patched .eq, ready for download
+    # Re-linted issues against the fixed text so the UI can show "what
+    # remains after auto-fix" without a second round-trip.
+    remaining_errors: int
+    remaining_warnings: int
+    remaining_info: int
 
 
 # ---------------------------------------------------------- helpers
@@ -174,6 +193,33 @@ async def lint_single(
         eqtype=_normalise_eqtype(eqtype),
         strict=strict,
         testlist=tl_set,
+    )
+
+
+@router.post("/fix", response_model=FixResult)
+async def fix_single(
+    file: UploadFile = File(...),
+) -> FixResult:
+    """Run all safe auto-fixes against a single .eq file.
+
+    Returns the patched text plus a list of fixes applied; the frontend
+    triggers a Blob download. Re-lints the fixed text so the UI can show
+    "issues remaining" in a single call.
+    """
+    raw = await _read_upload(file, max_bytes=_MAX_FILE_BYTES)
+    text = _decode(raw)
+    fixed_text, fixes = apply_fixes(text)
+    remaining = lint(fixed_text)
+    return FixResult(
+        filename=file.filename or "input.eq",
+        fixed=bool(fixes),
+        fixes=[FixEntry(line=ln, description=desc) for ln, desc in fixes],
+        original_size=len(text),
+        fixed_size=len(fixed_text),
+        fixed_text=fixed_text,
+        remaining_errors=sum(1 for i in remaining if i.severity == "error"),
+        remaining_warnings=sum(1 for i in remaining if i.severity == "warning"),
+        remaining_info=sum(1 for i in remaining if i.severity == "info"),
     )
 
 

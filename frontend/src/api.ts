@@ -2,6 +2,7 @@ import type {
   BatchLintResult,
   CodeEntry,
   FileLintResult,
+  FixResult,
 } from "./types";
 
 // Backend lives at /api both in dev (via Vite proxy) and prod (same origin).
@@ -50,6 +51,13 @@ export async function lintBatch(
   if (opts.strict) fd.append("strict", "true");
   if (opts.testlist) fd.append("testlist", opts.testlist);
   const resp = await fetch(`${API}/lint-batch`, { method: "POST", body: fd });
+  return jsonOrThrow(resp);
+}
+
+export async function runFix(file: File): Promise<FixResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch(`${API}/fix`, { method: "POST", body: fd });
   return jsonOrThrow(resp);
 }
 

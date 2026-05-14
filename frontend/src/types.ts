@@ -30,3 +30,20 @@ export interface CodeEntry {
   severity: string;
   description: string;
 }
+
+export interface FixEntry {
+  line: number;
+  description: string;
+}
+
+export interface FixResult {
+  filename: string;
+  fixed: boolean;
+  fixes: FixEntry[];
+  original_size: number;
+  fixed_size: number;
+  fixed_text: string;
+  remaining_errors: number;
+  remaining_warnings: number;
+  remaining_info: number;
+}

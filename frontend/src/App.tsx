@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { lintBatch, lintSingle } from "./api";
+import { lintBatch, lintSingle, runFix } from "./api";
 import { CodesPanel } from "./components/CodesPanel";
 import { Dropzone } from "./components/Dropzone";
+import { FixPanel } from "./components/FixPanel";
 import { IssueTable } from "./components/IssueTable";
 import {
   LintOptionsBar,
   type LintOptionsState,
 } from "./components/LintOptionsBar";
 import { Summary } from "./components/Summary";
-import type { BatchLintResult, FileLintResult } from "./types";
+import type { BatchLintResult, FileLintResult, FixResult } from "./types";
 
 type Tab = "single" | "batch" | "codes";
 
@@ -23,6 +24,7 @@ export function App() {
   // single-file state
   const [pickedFile, setPickedFile] = useState<File | null>(null);
   const [singleResult, setSingleResult] = useState<FileLintResult | null>(null);
+  const [fixResult, setFixResult] = useState<FixResult | null>(null);
 
   // batch state
   const [pickedZip, setPickedZip] = useState<File | null>(null);
@@ -44,9 +46,26 @@ export function App() {
     try {
       const result = await lintSingle(pickedFile, lintOpts);
       setSingleResult(result);
+      setFixResult(null);   // stale once a fresh lint runs
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       setSingleResult(null);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function runAutoFix() {
+    if (!pickedFile) return;
+    setError(null);
+    setRunning(true);
+    try {
+      const result = await runFix(pickedFile);
+      setFixResult(result);
+      setSingleResult(null); // stale once fix changes the source
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+      setFixResult(null);
     } finally {
       setRunning(false);
     }
@@ -117,13 +136,23 @@ export function App() {
             <div className="picked">
               {pickedFile ? <>Picked: <strong>{pickedFile.name}</strong></> : "No file picked."}
             </div>
-            <button
-              className="primary"
-              disabled={!pickedFile || running}
-              onClick={runSingle}
-            >
-              {running ? "Linting…" : "Run Lint"}
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="primary"
+                disabled={!pickedFile || running}
+                onClick={runSingle}
+              >
+                {running ? "Working…" : "Run Lint"}
+              </button>
+              <button
+                className="primary"
+                disabled={!pickedFile || running}
+                onClick={runAutoFix}
+                title="Apply safe auto-fixes (scientific notation, trailing whitespace)"
+              >
+                Run Auto-Fix
+              </button>
+            </div>
           </div>
           {error && <div className="error-banner">{error}</div>}
           {singleResult && (
@@ -137,6 +166,7 @@ export function App() {
               <IssueTable issues={singleResult.issues} />
             </>
           )}
+          {fixResult && <FixPanel result={fixResult} />}
         </>
       )}
 
