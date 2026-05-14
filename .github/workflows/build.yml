@@ -12,6 +12,11 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Needed for softprops/action-gh-release to create + upload to the Release.
+# Default GITHUB_TOKEN is read-only on repos created after Feb 2023.
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
