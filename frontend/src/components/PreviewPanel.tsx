@@ -27,11 +27,22 @@ function deriveIncludeName(filename: string): string {
   return filename.replace(/\.(mask|eq|rule|txt)$/i, "");
 }
 
+/** Parse the ordered-tests text into a list, or undefined if blank. */
+function parseOrderedTests(s: string): string[] | undefined {
+  const trimmed = s.trim();
+  if (!trimmed) return undefined;     // blank → superset mode
+  return trimmed
+    .split(/[,\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 export function PreviewPanel() {
   const [text, setText] = useState(DEFAULT_MASK);
   const [width, setWidth] = useState(120);
   const [height, setHeight] = useState(25);
   const [includes, setIncludes] = useState<Record<string, string>>({});
+  const [orderedTestsText, setOrderedTestsText] = useState("");
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -45,7 +56,10 @@ export function PreviewPanel() {
     debounceRef.current = window.setTimeout(async () => {
       setRunning(true);
       try {
-        const r = await previewMask(text, width, height, includes);
+        const r = await previewMask(
+          text, width, height, includes,
+          parseOrderedTests(orderedTestsText),
+        );
         setResult(r);
         setError(null);
       } catch (e: unknown) {
@@ -59,7 +73,7 @@ export function PreviewPanel() {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [text, width, height, includes]);
+  }, [text, width, height, includes, orderedTestsText]);
 
   async function addIncludeFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -81,6 +95,8 @@ export function PreviewPanel() {
   }
 
   const includeNames = Object.keys(includes).sort();
+  const parsedOrdered = parseOrderedTests(orderedTestsText);
+  const fixtureMode = parsedOrdered !== undefined;
 
   return (
     <div className="preview-panel">
@@ -111,11 +127,29 @@ export function PreviewPanel() {
             ))}
           </select>
         </label>
+        <label style={{ flex: 1, minWidth: 280 }}>
+          Ordered tests:
+          <input
+            type="text"
+            value={orderedTestsText}
+            onChange={(e) => setOrderedTestsText(e.target.value)}
+            placeholder="comma-separated, e.g. SEMCON, SEMCASA, LP"
+            style={{
+              flex: 1,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 12,
+              padding: "3px 6px",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              minWidth: 200,
+            }}
+          />
+        </label>
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
           {running
             ? "rendering…"
             : result
-            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded · ${includeNames.length} include${includeNames.length === 1 ? "" : "s"} loaded`
+            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded · ${includeNames.length} include${includeNames.length === 1 ? "" : "s"} · ${fixtureMode ? `fixture (${parsedOrdered?.length ?? 0} ordered)` : "superset"}`
             : "no input"}
         </span>
       </div>

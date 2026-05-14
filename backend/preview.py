@@ -193,6 +193,57 @@ def _looks_like_tlist(s: str) -> bool:
     return "{" in s and "}" in s
 
 
+# --------------------------------------------------------- if-condition eval
+
+_TEST_ORDERED_RE = re.compile(
+    r"\btest_ordered\s*\(\s*([\"']?)([A-Za-z_][A-Za-z0-9_]*)\1\s*\)",
+    re.IGNORECASE,
+)
+_COND_WHITELIST_RE = re.compile(
+    r"\b(True|False|and|or|not)\b|[\s()]",
+)
+
+
+def evaluate_condition(cond: str, fixture: Optional[set]) -> Optional[bool]:
+    """Try to evaluate an if/while condition against an 'ordered tests'
+    fixture. Returns True/False if the condition can be fully reduced
+    to a boolean, None if anything we don't understand remains
+    (caller should fall back to walking both branches).
+
+    Supported:
+      - test_ordered("X") or test_ordered(X) → membership in fixture
+      - & (AND), | (OR), ! (NOT), parentheses
+    Not supported (falls back to None):
+      - comparisons (==, !=, <, >, <=, >=)
+      - any other subroutine call
+      - bare numeric/string literals
+    """
+    if fixture is None:
+        return None
+
+    def _sub(m: "re.Match[str]") -> str:
+        # Fixture is normalised to upper-case in render_mask; do the
+        # same for the source-side name so SEMCON / semcon both match.
+        name = m.group(2).upper()
+        return "True" if name in fixture else "False"
+
+    expr = _TEST_ORDERED_RE.sub(_sub, cond)
+    # Translate operators. `!` only when not followed by `=` to keep `!=`
+    # intact (so it falls through to the whitelist and is rejected).
+    expr = re.sub(r"!(?!=)", " not ", expr)
+    expr = expr.replace("&", " and ").replace("|", " or ")
+
+    # Whitelist: only literals + boolean operators + parens + whitespace.
+    residue = _COND_WHITELIST_RE.sub("", expr)
+    if residue:
+        return None
+
+    try:
+        return bool(eval(expr, {"__builtins__": {}}, {}))   # noqa: S307
+    except Exception:
+        return None
+
+
 class Scope:
     """Tracks literal-int / literal-string variable assignments and
     simple integer arithmetic, including 1-D arrays. Anything we can't
@@ -434,23 +485,35 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
 
 
 def _walk_stmt(stmt: Stmt, source: str, scope: Scope,
-               result: PreviewResult) -> None:
+               result: PreviewResult,
+               fixture: Optional[set] = None) -> None:
     if stmt.kind == "block":
         for c in stmt.children:
-            _walk_stmt(c, source, scope, result)
+            _walk_stmt(c, source, scope, result, fixture)
         return
     if stmt.kind == "if":
         result.branches_expanded += 1
-        for c in stmt.children:
-            _walk_stmt(c, source, scope, result)
-        if stmt.else_branch is not None:
-            _walk_stmt(stmt.else_branch, source, scope, result)
+        cond_val = evaluate_condition(stmt.cond_text, fixture)
+        if cond_val is True:
+            # Only walk then-branch
+            for c in stmt.children:
+                _walk_stmt(c, source, scope, result, fixture)
+        elif cond_val is False:
+            # Only walk else-branch if present
+            if stmt.else_branch is not None:
+                _walk_stmt(stmt.else_branch, source, scope, result, fixture)
+        else:
+            # Fixture-unknown — walk both (superset).
+            for c in stmt.children:
+                _walk_stmt(c, source, scope, result, fixture)
+            if stmt.else_branch is not None:
+                _walk_stmt(stmt.else_branch, source, scope, result, fixture)
         return
     if stmt.kind == "while":
         # Walk body once — loops with literal bounds could be unrolled
         # in a future pass.
         for c in stmt.children:
-            _walk_stmt(c, source, scope, result)
+            _walk_stmt(c, source, scope, result, fixture)
         return
     if stmt.kind == "exit":
         return
@@ -549,12 +612,20 @@ def _resolve_includes(source: str, includes: Dict[str, str],
 
 def render_mask(source: str, *, grid_width: int = 120,
                 grid_height: int = 25,
-                includes: Optional[Dict[str, str]] = None) -> PreviewResult:
+                includes: Optional[Dict[str, str]] = None,
+                ordered_tests: Optional[List[str]] = None) -> PreviewResult:
     """Top-level entry point. Parses the mask and returns a PreviewResult.
 
     If `includes` is supplied (name → body map), every include_mask("X")
     call in the source (and in any included body) is substituted before
     parsing. Unresolved or cyclic includes generate warnings.
+
+    If `ordered_tests` is supplied (list of test mnemonics), if-conditions
+    that reduce to membership tests against this set are evaluated and
+    only the matching branch is walked. When None or when a condition
+    can't be fully reduced (e.g. contains comparisons or unknown calls),
+    the walker falls back to the original superset behaviour (both
+    branches walked).
     """
     result = PreviewResult(grid_width=grid_width, grid_height=grid_height)
     expanded = _resolve_includes(source, includes or {}, result)
@@ -562,8 +633,12 @@ def render_mask(source: str, *, grid_width: int = 120,
     code = rule_lint.strip_comments(expanded)
     statements = rule_lint.parse_statements(code)
 
+    fixture: Optional[set] = None
+    if ordered_tests is not None:
+        fixture = {t.strip().upper() for t in ordered_tests if t and t.strip()}
+
     scope = Scope()
     for s in statements:
-        _walk_stmt(s, expanded, scope, result)
+        _walk_stmt(s, expanded, scope, result, fixture)
 
     return result

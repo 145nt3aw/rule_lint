@@ -131,6 +131,11 @@ class PreviewRequest(BaseModel):
     # Optional name → body map for include_mask() resolution. Names match
     # case-insensitively against the include_mask string literal.
     includes: Optional[Dict[str, str]] = None
+    # Optional fixture: test mnemonics that count as 'ordered'.
+    # When supplied (even if empty), test_ordered(X) conditions are
+    # resolved against the set and only the matching if-branch runs.
+    # When None, both branches are walked (superset preview).
+    ordered_tests: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------- helpers
@@ -268,7 +273,8 @@ def preview(req: PreviewRequest) -> PreviewResultOut:
     gh = max(5, min(req.grid_height, 100))
     try:
         result = render_mask(req.text, grid_width=gw, grid_height=gh,
-                             includes=req.includes or {})
+                             includes=req.includes or {},
+                             ordered_tests=req.ordered_tests)
     except Exception as exc:   # noqa: BLE001
         # Fall back to a 400 with the parser-level error rather than 500.
         raise HTTPException(400, f"Mask parse failed: {exc}")

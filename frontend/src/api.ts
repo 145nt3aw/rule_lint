@@ -99,16 +99,23 @@ export async function previewMask(
   gridWidth = 120,
   gridHeight = 25,
   includes: Record<string, string> = {},
+  orderedTests?: string[],
 ): Promise<PreviewResult> {
+  const body: Record<string, unknown> = {
+    text,
+    grid_width: gridWidth,
+    grid_height: gridHeight,
+    includes,
+  };
+  // Only send ordered_tests when the user has actually supplied one;
+  // omitting it tells the backend to fall back to superset (both-branch) mode.
+  if (orderedTests !== undefined) {
+    body.ordered_tests = orderedTests;
+  }
   const resp = await fetch(`${API}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text,
-      grid_width: gridWidth,
-      grid_height: gridHeight,
-      includes,
-    }),
+    body: JSON.stringify(body),
   });
   return jsonOrThrow(resp);
 }
