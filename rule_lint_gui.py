@@ -45,7 +45,7 @@ import rule_lint_xlsx  # noqa: E402
 
 
 APP_TITLE = "Rule Lint"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 
 SEVERITY_TAGS = {"error": "sev-error", "warning": "sev-warning", "info": "sev-info"}
 SEVERITY_COLOURS = {"sev-error": "#cc3333", "sev-warning": "#cc8a00", "sev-info": "#2266cc"}
