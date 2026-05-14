@@ -409,6 +409,11 @@ footer {
   display: inline-flex;
 }
 
+/* Cell width = 1ch. In a true monospace font every glyph (including
+   cap-W) has the same advance, so this matches the rule-engine's
+   uniform-character-width model in vprint_getwidth() — i.e. each
+   character occupies one column. Don't change to em/px without
+   re-verifying alignment. */
 .cell {
   display: inline-block;
   width: 1ch;

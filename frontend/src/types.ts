@@ -89,6 +89,8 @@ export interface PreviewResult {
   grid_width: number;
   grid_height: number;
   branches_expanded: number;
+  tests_loaded: number;
+  panels_loaded: number;
   commands: RenderCmd[];
   warnings: PreviewWarning[];
 }

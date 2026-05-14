@@ -43,11 +43,15 @@ export function PreviewPanel() {
   const [height, setHeight] = useState(25);
   const [includes, setIncludes] = useState<Record<string, string>>({});
   const [orderedTestsText, setOrderedTestsText] = useState("");
+  const [cftestTsv, setCftestTsv] = useState<string>("");
+  const [cfpanelTsv, setCfpanelTsv] = useState<string>("");
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const debounceRef = useRef<number | null>(null);
   const includeInputRef = useRef<HTMLInputElement | null>(null);
+  const cftestInputRef = useRef<HTMLInputElement | null>(null);
+  const cfpanelInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (debounceRef.current !== null) {
@@ -59,6 +63,8 @@ export function PreviewPanel() {
         const r = await previewMask(
           text, width, height, includes,
           parseOrderedTests(orderedTestsText),
+          cftestTsv || undefined,
+          cfpanelTsv || undefined,
         );
         setResult(r);
         setError(null);
@@ -73,7 +79,7 @@ export function PreviewPanel() {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [text, width, height, includes, orderedTestsText]);
+  }, [text, width, height, includes, orderedTestsText, cftestTsv, cfpanelTsv]);
 
   async function addIncludeFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -94,9 +100,25 @@ export function PreviewPanel() {
     });
   }
 
+  async function loadCftest(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setCftestTsv(await files[0].text());
+    if (cftestInputRef.current) cftestInputRef.current.value = "";
+  }
+
+  async function loadCfpanel(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setCfpanelTsv(await files[0].text());
+    if (cfpanelInputRef.current) cfpanelInputRef.current.value = "";
+  }
+
   const includeNames = Object.keys(includes).sort();
   const parsedOrdered = parseOrderedTests(orderedTestsText);
   const fixtureMode = parsedOrdered !== undefined;
+  const cftestRows = cftestTsv ? Math.max(0, cftestTsv.split("\n").length - 1) : 0;
+  const cfpanelRows = cfpanelTsv ? Math.max(0, cfpanelTsv.split("\n").length - 1) : 0;
+  const testsLoaded = result?.tests_loaded ?? 0;
+  const panelsLoaded = result?.panels_loaded ?? 0;
 
   return (
     <div className="preview-panel">
@@ -149,7 +171,7 @@ export function PreviewPanel() {
           {running
             ? "rendering…"
             : result
-            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded · ${includeNames.length} include${includeNames.length === 1 ? "" : "s"} · ${fixtureMode ? `fixture (${parsedOrdered?.length ?? 0} ordered)` : "superset"}`
+            ? `${result.commands.length} cell${result.commands.length === 1 ? "" : "s"} · ${result.branches_expanded} branch${result.branches_expanded === 1 ? "" : "es"} expanded · ${includeNames.length} include${includeNames.length === 1 ? "" : "s"} · ${fixtureMode ? `fixture (${parsedOrdered?.length ?? 0} ordered)` : "superset"}${testsLoaded || panelsLoaded ? ` · ${testsLoaded} test${testsLoaded === 1 ? "" : "s"} · ${panelsLoaded} panel${panelsLoaded === 1 ? "" : "s"}` : " · no catalogue"}`
             : "no input"}
         </span>
       </div>
@@ -191,6 +213,73 @@ export function PreviewPanel() {
             </button>
           </span>
         ))}
+      </div>
+
+      <div className="include-bar">
+        <button
+          className="primary"
+          style={{ padding: "4px 10px", fontSize: 12 }}
+          onClick={() => cftestInputRef.current?.click()}
+        >
+          Load test catalogue (CFtest.tsv)…
+        </button>
+        <input
+          ref={cftestInputRef}
+          type="file"
+          accept=".tsv,.csv,.txt"
+          style={{ display: "none" }}
+          onChange={(e) => loadCftest(e.target.files)}
+        />
+        <button
+          className="primary"
+          style={{ padding: "4px 10px", fontSize: 12 }}
+          onClick={() => cfpanelInputRef.current?.click()}
+        >
+          Load panel catalogue (CFpanel.tsv)…
+        </button>
+        <input
+          ref={cfpanelInputRef}
+          type="file"
+          accept=".tsv,.csv,.txt"
+          style={{ display: "none" }}
+          onChange={(e) => loadCfpanel(e.target.files)}
+        />
+        {!cftestTsv && !cfpanelTsv && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            No catalogue loaded. Test mnemonics will render as bracketed
+            placeholders; panel expansion is off until CFpanel is supplied.
+          </span>
+        )}
+        {cftestTsv && (
+          <span className="include-chip">
+            <strong>CFtest</strong>
+            <span style={{ color: "var(--muted)", marginLeft: 4 }}>
+              ({cftestRows} rows · {testsLoaded} parsed)
+            </span>
+            <button
+              onClick={() => setCftestTsv("")}
+              title="Clear test catalogue"
+              aria-label="Clear test catalogue"
+            >
+              ×
+            </button>
+          </span>
+        )}
+        {cfpanelTsv && (
+          <span className="include-chip">
+            <strong>CFpanel</strong>
+            <span style={{ color: "var(--muted)", marginLeft: 4 }}>
+              ({cfpanelRows} rows · {panelsLoaded} parsed)
+            </span>
+            <button
+              onClick={() => setCfpanelTsv("")}
+              title="Clear panel catalogue"
+              aria-label="Clear panel catalogue"
+            >
+              ×
+            </button>
+          </span>
+        )}
       </div>
 
       <div className="preview-split">

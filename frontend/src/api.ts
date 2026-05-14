@@ -100,6 +100,8 @@ export async function previewMask(
   gridHeight = 25,
   includes: Record<string, string> = {},
   orderedTests?: string[],
+  cftestTsv?: string,
+  cfpanelTsv?: string,
 ): Promise<PreviewResult> {
   const body: Record<string, unknown> = {
     text,
@@ -112,6 +114,8 @@ export async function previewMask(
   if (orderedTests !== undefined) {
     body.ordered_tests = orderedTests;
   }
+  if (cftestTsv) body.cftest_tsv = cftestTsv;
+  if (cfpanelTsv) body.cfpanel_tsv = cfpanelTsv;
   const resp = await fetch(`${API}/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -20,6 +20,8 @@ a JSON response.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -39,28 +41,25 @@ _INCLUDE_DEPTH_LIMIT = 32
 
 
 # ---------------------------------------------------------- output table
-# (subroutine, (x_arg_idx, y_arg_idx, kind, text_idx or None,
-#               width_idx or None)) — indices into the comma-split args.
-#
-# text_idx None means "use a placeholder labelled with the kind".
-# For output_results/output_testname/output_units/output_refrange the
-# last arg is the test mnemonic; we use [TESTNAME] / [TESTNAME RESULT]
-# style placeholders.
+# Arg-index specs for each positioning subroutine, verified against the
+# shipped rule-engine source (/home/andrew/evo/src/eq.c dispatch table
+# at ~19256). `just` carries the engine's "w<N>" width hint which we
+# parse via _extract_width_hint(); see vprint_getwidth() in vprint.c.
 POSITION_SUBS: Dict[str, dict] = {
-    # output_text(x, y, font, font_size, justify, text)
-    "output_text": {"x": 0, "y": 1, "text": 5, "kind": "text"},
-    # output_results(x, y, font, size, hfont, hsize, just, mode, flags, test)
-    "output_results": {"x": 0, "y": 1, "test": 9, "kind": "field",
-                       "label": "RESULT"},
-    # output_testname(x, y, font, size, hfont, hsize, just, mode, accred, test)
-    "output_testname": {"x": 0, "y": 1, "test": 9, "kind": "field",
-                        "label": "TESTNAME"},
-    # output_units(x, y, font, size, just, mode, flags, test)
-    "output_units": {"x": 0, "y": 1, "test": 7, "kind": "field",
-                     "label": "UNITS"},
-    # output_refrange(x, y, font, size, just, mode, flags, test)
-    "output_refrange": {"x": 0, "y": 1, "test": 7, "kind": "field",
-                        "label": "REFRANGE"},
+    # output_text(x, y, font, size, just, text) — 6 args
+    "output_text": {"x": 0, "y": 1, "just": 4, "text": 5, "kind": "text"},
+    # output_results(x, y, cn, sn, ch, sh, just, fmt_flags, decimals, test) — 10 args
+    "output_results": {"x": 0, "y": 1, "just": 6, "test": 9,
+                       "kind": "field", "label": "RESULT"},
+    # output_testname(x, y, cn, sn, ch, sh, just, mode, accred, test) — 10 args
+    "output_testname": {"x": 0, "y": 1, "just": 6, "test": 9,
+                        "kind": "field", "label": "TESTNAME"},
+    # output_units(x, y, cn, sn, ch, sh, just, test) — 8 args
+    "output_units": {"x": 0, "y": 1, "just": 6, "test": 7,
+                     "kind": "field", "label": "UNITS"},
+    # output_refrange(x, y, cn, sn, ch, sh, just, test) — 8 args
+    "output_refrange": {"x": 0, "y": 1, "just": 6, "test": 7,
+                        "kind": "field", "label": "REFRANGE"},
     # output_line(x1, y1, x2, y2, ...)
     "output_line": {"x": 0, "y": 1, "x2": 2, "y2": 3, "kind": "line"},
     # output_box(x, y, w, h, ...)
@@ -99,9 +98,151 @@ class PreviewResult:
     # Stats for the UI badge — number of statements that were skipped
     # because of all-branches-taken expansion (helpful context).
     branches_expanded: int = 0
+    tests_loaded: int = 0
+    panels_loaded: int = 0
+
+
+@dataclass
+class TestInfo:
+    mnem: str
+    display_name: str = ""
+    format: str = ""        # e.g. "3N.2N"
+    units: str = ""
+    decimals: int = 0
+    width: int = 0          # derived from format
+
+
+@dataclass
+class Catalogue:
+    """Test + panel metadata, parsed from CFtest.tsv and CFpanel.tsv
+    exports produced by the rule-engine's dump_testpanel().
+    """
+    tests: Dict[str, TestInfo] = field(default_factory=dict)   # keyed upper-case
+    panels: Dict[str, List[str]] = field(default_factory=dict)  # keyed upper-case
 
 
 # ---------------------------------------------------------- helpers
+
+
+# Evolution test formats: "3N.2N" → 3 int digits + decimal + 2 fraction = 6,
+# "5N" → 5, "-12N" → 12 (sign reserves a slot). Also tolerate printf-style
+# "%-10s" / "%5d" forms. Unknown shapes return 0 and the caller falls back
+# to the placeholder's natural length.
+_EVO_FMT_RE = re.compile(r"^(-?)(\d+)N(?:\.(\d+)N)?$")
+_PRINTF_FMT_RE = re.compile(r"^%-?(\d+)[a-zA-Z]$")
+
+
+def format_width(fmt: str) -> int:
+    if not fmt:
+        return 0
+    s = fmt.strip()
+    m = _EVO_FMT_RE.match(s)
+    if m:
+        whole = int(m.group(2))
+        frac = int(m.group(3)) if m.group(3) else 0
+        # Decimal point eats a column when there's a fractional part.
+        # Leading `-` is a left-justify flag and doesn't add a slot.
+        return whole + (1 + frac if frac else 0)
+    m = _PRINTF_FMT_RE.match(s)
+    if m:
+        return int(m.group(1))
+    return 0
+
+
+_WIDTH_HINT_RE = re.compile(r"w(\d+)", re.IGNORECASE)
+
+
+def _extract_width_hint(just: str) -> Optional[int]:
+    """Parse the rule-engine's "w<N>" hint out of a justify-flags string.
+    Mirrors vprint_getwidth() in /home/andrew/evo/lib/vprint.c:1799.
+    """
+    if not just:
+        return None
+    m = _WIDTH_HINT_RE.search(just)
+    return int(m.group(1)) if m else None
+
+
+def _norm_headers(row: Dict[str, str]) -> Dict[str, str]:
+    """Lower-case + strip header keys so 'Display Name', 'display_name'
+    and 'DISPLAY NAME' all match.
+    """
+    out: Dict[str, str] = {}
+    for k, v in row.items():
+        if k is None:
+            continue
+        key = k.strip().lower().replace("_", " ")
+        out[key] = (v or "").strip() if isinstance(v, str) else ""
+    return out
+
+
+def parse_cftest(text: str) -> Tuple[Dict[str, TestInfo], List[str]]:
+    """Parse a CFtest TSV (the format dump_testpanel() writes). Returns
+    (tests-by-uppercase-mnem, warnings). Tolerates extra/missing columns;
+    the only required column is 'Mnemonic'.
+    """
+    warnings: List[str] = []
+    tests: Dict[str, TestInfo] = {}
+    if not text or not text.strip():
+        return tests, warnings
+    reader = csv.DictReader(io.StringIO(text), dialect="excel-tab")
+    if reader.fieldnames is None:
+        warnings.append("CFtest: empty file or no header row")
+        return tests, warnings
+    headers = {h.strip().lower().replace("_", " "): h for h in reader.fieldnames if h}
+    if "mnemonic" not in headers:
+        warnings.append("CFtest: missing required 'Mnemonic' column")
+        return tests, warnings
+    for row in reader:
+        norm = _norm_headers(row)
+        mnem = norm.get("mnemonic", "")
+        if not mnem:
+            continue
+        try:
+            decimals = int(norm.get("precision") or 0)
+        except ValueError:
+            decimals = 0
+        fmt = norm.get("format", "")
+        info = TestInfo(
+            mnem=mnem,
+            display_name=norm.get("display name", ""),
+            format=fmt,
+            units=norm.get("units", ""),
+            decimals=decimals,
+            width=format_width(fmt),
+        )
+        tests[mnem.upper()] = info
+    return tests, warnings
+
+
+def parse_cfpanel(text: str) -> Tuple[Dict[str, List[str]], List[str]]:
+    """Parse a CFpanel TSV. Required columns: 'Mnemonic', 'Tests' (a
+    comma-separated list of test mnemonics). Returns (panels-by-uppercase-
+    mnem, warnings).
+    """
+    warnings: List[str] = []
+    panels: Dict[str, List[str]] = {}
+    if not text or not text.strip():
+        return panels, warnings
+    reader = csv.DictReader(io.StringIO(text), dialect="excel-tab")
+    if reader.fieldnames is None:
+        warnings.append("CFpanel: empty file or no header row")
+        return panels, warnings
+    headers = {h.strip().lower().replace("_", " "): h for h in reader.fieldnames if h}
+    if "mnemonic" not in headers:
+        warnings.append("CFpanel: missing required 'Mnemonic' column")
+        return panels, warnings
+    if "tests" not in headers:
+        warnings.append("CFpanel: missing required 'Tests' column")
+        return panels, warnings
+    for row in reader:
+        norm = _norm_headers(row)
+        mnem = norm.get("mnemonic", "")
+        if not mnem:
+            continue
+        tests_field = norm.get("tests", "")
+        members = [t.strip() for t in tests_field.split(",") if t.strip()]
+        panels[mnem.upper()] = members
+    return panels, warnings
 
 
 def _line_of(text: str, char_index: int) -> int:
@@ -379,8 +520,60 @@ def _top_level_addops(s: str) -> List[Tuple[int, str]]:
 # ---------------------------------------------------------- main walker
 
 
+def _resolve_just(spec: dict, args: List[str], scope: Scope) -> str:
+    """Resolve the just-string arg (if any) to a literal. Unresolved →
+    empty string so width-hint extraction simply returns None."""
+    idx = spec.get("just")
+    if idx is None or idx >= len(args):
+        return ""
+    try:
+        val = scope.eval_value(args[idx])
+    except ValueError:
+        return ""
+    return str(val) if val is not None else ""
+
+
+def _placeholder_for(label: str, test_name: str) -> str:
+    """v1 fallback: bracketed placeholder used when no catalogue is
+    available for a given test mnemonic.
+    """
+    if label == "TESTNAME":
+        return test_name or "[TESTNAME]"
+    if label == "UNITS":
+        return "[u]"
+    if label == "REFRANGE":
+        return "[ref]"
+    return f"[{test_name} {label}]" if test_name else f"[{label}]"
+
+
+def _cell_for_test(label: str, test_name: str,
+                   catalogue: Optional["Catalogue"]) -> Tuple[str, int]:
+    """Pick (text, format-width) for a single test mnem + label combo,
+    consulting the catalogue when present. format-width may be 0 ('use
+    len(text)') if no format is registered for the test.
+    """
+    info: Optional[TestInfo] = None
+    if catalogue is not None:
+        info = catalogue.tests.get(test_name.upper())
+    if info is None:
+        return _placeholder_for(label, test_name), 0
+
+    if label == "TESTNAME":
+        text = info.display_name or info.mnem
+    elif label == "UNITS":
+        text = info.units or "[u]"
+    elif label == "REFRANGE":
+        text = "[ref]"
+    elif label == "RESULT":
+        text = "·" * info.width if info.width > 0 else f"[{info.mnem}]"
+    else:
+        text = f"[{info.mnem} {label}]"
+    return text, info.width
+
+
 def _emit_for_call(call_name: str, args: List[str], scope: Scope,
-                   line: int, result: PreviewResult) -> None:
+                   line: int, result: PreviewResult,
+                   catalogue: Optional["Catalogue"] = None) -> None:
     spec = POSITION_SUBS.get(call_name)
     if spec is None:
         return
@@ -394,6 +587,7 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
         return
 
     kind = spec["kind"]
+    hint = _extract_width_hint(_resolve_just(spec, args, scope))
 
     if kind == "text" and "text" in spec:
         idx = spec["text"]
@@ -407,9 +601,10 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
             # Use the source slice as a fallback placeholder.
             text_val = f"[{args[idx]}]"
         text_str = str(text_val)
+        width = hint or len(text_str)
         result.commands.append(RenderCmd(
             x=x, y=y, kind="text", text=text_str,
-            width=len(text_str), source_line=line))
+            width=width, source_line=line))
         return
 
     if kind == "field" and "test" in spec:
@@ -434,28 +629,41 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
                     cy += int(value)  # type: ignore[arg-type]
                     continue
                 tname = str(value)
-                if label == "TESTNAME":
-                    cell_text = tname
-                elif label == "UNITS":
-                    cell_text = "[u]"
-                elif label == "REFRANGE":
-                    cell_text = "[ref]"
-                else:
-                    cell_text = f"[{tname}]"
+                cell_text, fmt_w = _cell_for_test(label, tname, catalogue)
+                width = hint or fmt_w or len(cell_text)
                 result.commands.append(RenderCmd(
                     x=x, y=cy, kind="field", text=cell_text,
-                    width=len(cell_text), source_line=line))
+                    width=width, source_line=line))
+                cy += 1
+            return
+
+        # Panel expansion: a bare mnem registered in CFpanel expands into
+        # one vertical cell per member test, same as a tlist.
+        if (catalogue is not None
+                and test_name
+                and test_name.upper() in catalogue.panels):
+            members = catalogue.panels[test_name.upper()]
+            if not members:
+                result.warnings.append(PreviewWarning(
+                    line=line,
+                    message=f"{call_name}: panel {test_name!r} is empty"))
+                return
+            cy = y
+            for member in members:
+                cell_text, fmt_w = _cell_for_test(label, member, catalogue)
+                width = hint or fmt_w or len(cell_text)
+                result.commands.append(RenderCmd(
+                    x=x, y=cy, kind="field", text=cell_text,
+                    width=width, source_line=line))
                 cy += 1
             return
 
         # Plain single-test argument — one cell.
-        if label == "TESTNAME":
-            text_str = test_name or "[TESTNAME]"
-        else:
-            text_str = f"[{test_name} {label}]" if test_name else f"[{label}]"
+        cell_text, fmt_w = _cell_for_test(label, test_name, catalogue)
+        width = hint or fmt_w or len(cell_text)
         result.commands.append(RenderCmd(
-            x=x, y=y, kind="field", text=text_str,
-            width=len(text_str), source_line=line))
+            x=x, y=y, kind="field", text=cell_text,
+            width=width, source_line=line))
         return
 
     if kind == "line":
@@ -486,10 +694,11 @@ def _emit_for_call(call_name: str, args: List[str], scope: Scope,
 
 def _walk_stmt(stmt: Stmt, source: str, scope: Scope,
                result: PreviewResult,
-               fixture: Optional[set] = None) -> None:
+               fixture: Optional[set] = None,
+               catalogue: Optional[Catalogue] = None) -> None:
     if stmt.kind == "block":
         for c in stmt.children:
-            _walk_stmt(c, source, scope, result, fixture)
+            _walk_stmt(c, source, scope, result, fixture, catalogue)
         return
     if stmt.kind == "if":
         result.branches_expanded += 1
@@ -497,23 +706,25 @@ def _walk_stmt(stmt: Stmt, source: str, scope: Scope,
         if cond_val is True:
             # Only walk then-branch
             for c in stmt.children:
-                _walk_stmt(c, source, scope, result, fixture)
+                _walk_stmt(c, source, scope, result, fixture, catalogue)
         elif cond_val is False:
             # Only walk else-branch if present
             if stmt.else_branch is not None:
-                _walk_stmt(stmt.else_branch, source, scope, result, fixture)
+                _walk_stmt(stmt.else_branch, source, scope, result,
+                           fixture, catalogue)
         else:
             # Fixture-unknown — walk both (superset).
             for c in stmt.children:
-                _walk_stmt(c, source, scope, result, fixture)
+                _walk_stmt(c, source, scope, result, fixture, catalogue)
             if stmt.else_branch is not None:
-                _walk_stmt(stmt.else_branch, source, scope, result, fixture)
+                _walk_stmt(stmt.else_branch, source, scope, result,
+                           fixture, catalogue)
         return
     if stmt.kind == "while":
         # Walk body once — loops with literal bounds could be unrolled
         # in a future pass.
         for c in stmt.children:
-            _walk_stmt(c, source, scope, result, fixture)
+            _walk_stmt(c, source, scope, result, fixture, catalogue)
         return
     if stmt.kind == "exit":
         return
@@ -535,7 +746,7 @@ def _walk_stmt(stmt: Stmt, source: str, scope: Scope,
         call_name = m.group(1).lower()
         args = _split_args(m.group(2))
         line = _line_of(source, stmt.start)
-        _emit_for_call(call_name, args, scope, line, result)
+        _emit_for_call(call_name, args, scope, line, result, catalogue)
         return
 
 
@@ -613,7 +824,8 @@ def _resolve_includes(source: str, includes: Dict[str, str],
 def render_mask(source: str, *, grid_width: int = 120,
                 grid_height: int = 25,
                 includes: Optional[Dict[str, str]] = None,
-                ordered_tests: Optional[List[str]] = None) -> PreviewResult:
+                ordered_tests: Optional[List[str]] = None,
+                catalogue: Optional[Catalogue] = None) -> PreviewResult:
     """Top-level entry point. Parses the mask and returns a PreviewResult.
 
     If `includes` is supplied (name → body map), every include_mask("X")
@@ -626,8 +838,16 @@ def render_mask(source: str, *, grid_width: int = 120,
     can't be fully reduced (e.g. contains comparisons or unknown calls),
     the walker falls back to the original superset behaviour (both
     branches walked).
+
+    If `catalogue` is supplied, test mnemonics passed to output_results
+    etc. are resolved to display names / units / format widths, and
+    panel mnemonics expand into one vertical cell per member test.
+    Without a catalogue, the v1 placeholder behaviour is preserved.
     """
     result = PreviewResult(grid_width=grid_width, grid_height=grid_height)
+    if catalogue is not None:
+        result.tests_loaded = len(catalogue.tests)
+        result.panels_loaded = len(catalogue.panels)
     expanded = _resolve_includes(source, includes or {}, result)
 
     code = rule_lint.strip_comments(expanded)
@@ -639,6 +859,6 @@ def render_mask(source: str, *, grid_width: int = 120,
 
     scope = Scope()
     for s in statements:
-        _walk_stmt(s, expanded, scope, result, fixture)
+        _walk_stmt(s, expanded, scope, result, fixture, catalogue)
 
     return result

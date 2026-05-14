@@ -20,7 +20,9 @@ from rule_lint import (
     build_suppress_map, lint, load_testlist,
 )
 
-from backend.preview import render_mask
+from backend.preview import (
+    Catalogue, parse_cfpanel, parse_cftest, render_mask,
+)
 
 
 router = APIRouter()
@@ -120,6 +122,8 @@ class PreviewResultOut(BaseModel):
     grid_width: int
     grid_height: int
     branches_expanded: int
+    tests_loaded: int = 0
+    panels_loaded: int = 0
     commands: List[RenderCmdOut]
     warnings: List[PreviewWarningOut]
 
@@ -136,6 +140,12 @@ class PreviewRequest(BaseModel):
     # resolved against the set and only the matching if-branch runs.
     # When None, both branches are walked (superset preview).
     ordered_tests: Optional[List[str]] = None
+    # Optional raw TSV exports from the rule-engine's dump_testpanel():
+    # CFtest (test attrs) and CFpanel (panel → tests). When supplied,
+    # output_results / output_testname etc. resolve display names,
+    # format-derived widths, and panel-to-tests expansion.
+    cftest_tsv: Optional[str] = None
+    cfpanel_tsv: Optional[str] = None
 
 
 # ---------------------------------------------------------- helpers
@@ -271,10 +281,21 @@ def preview(req: PreviewRequest) -> PreviewResultOut:
         raise HTTPException(413, "Mask source exceeds 5 MiB cap.")
     gw = max(20, min(req.grid_width, 200))
     gh = max(5, min(req.grid_height, 100))
+
+    catalogue: Optional[Catalogue] = None
+    pre_warnings: List[PreviewWarningOut] = []
+    if req.cftest_tsv or req.cfpanel_tsv:
+        tests, tw = parse_cftest(req.cftest_tsv or "")
+        panels, pw = parse_cfpanel(req.cfpanel_tsv or "")
+        catalogue = Catalogue(tests=tests, panels=panels)
+        for msg in tw + pw:
+            pre_warnings.append(PreviewWarningOut(line=0, message=msg))
+
     try:
         result = render_mask(req.text, grid_width=gw, grid_height=gh,
                              includes=req.includes or {},
-                             ordered_tests=req.ordered_tests)
+                             ordered_tests=req.ordered_tests,
+                             catalogue=catalogue)
     except Exception as exc:   # noqa: BLE001
         # Fall back to a 400 with the parser-level error rather than 500.
         raise HTTPException(400, f"Mask parse failed: {exc}")
@@ -282,13 +303,15 @@ def preview(req: PreviewRequest) -> PreviewResultOut:
         grid_width=result.grid_width,
         grid_height=result.grid_height,
         branches_expanded=result.branches_expanded,
+        tests_loaded=result.tests_loaded,
+        panels_loaded=result.panels_loaded,
         commands=[
             RenderCmdOut(x=c.x, y=c.y, kind=c.kind, text=c.text,
                          width=c.width, height=c.height, colour=c.colour,
                          bold=c.bold, source_line=c.source_line)
             for c in result.commands
         ],
-        warnings=[
+        warnings=pre_warnings + [
             PreviewWarningOut(line=w.line, message=w.message)
             for w in result.warnings
         ],
