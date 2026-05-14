@@ -318,6 +318,47 @@ def preview(req: PreviewRequest) -> PreviewResultOut:
     )
 
 
+_CFTEST_TEMPLATE = (
+    "Mnemonic\tDisplay Name\tFormat\tUnits\tPrecision\n"
+    "CREAT\tCreatinine\t3N.2N\tumol/L\t2\n"
+    "NA\tSodium\t3N\tmmol/L\t0\n"
+    "K\tPotassium\t1N.1N\tmmol/L\t1\n"
+    "CL\tChloride\t3N\tmmol/L\t0\n"
+    "UREA\tUrea\t2N.1N\tmmol/L\t1\n"
+)
+
+_CFPANEL_TEMPLATE = (
+    "Mnemonic\tDescription\tTests\n"
+    "RENAL\tRenal panel\tNA,K,CL,UREA,CREAT\n"
+    "LFT\tLiver function tests\tALT,AST,ALP,BILI,ALB\n"
+)
+
+
+@router.get("/preview/cftest-template")
+def get_cftest_template() -> Response:
+    """Tab-separated CFtest template — matches dump_testpanel's columns
+    for the test catalogue. Headers + a few example rows so a user can
+    fill in their own data with the right shape.
+    """
+    return Response(
+        content=_CFTEST_TEMPLATE,
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="CFtest.tsv"'},
+    )
+
+
+@router.get("/preview/cfpanel-template")
+def get_cfpanel_template() -> Response:
+    """Tab-separated CFpanel template — Mnemonic + Tests (comma-separated
+    member mnemonics) are the columns our parser consumes.
+    """
+    return Response(
+        content=_CFPANEL_TEMPLATE,
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": 'attachment; filename="CFpanel.tsv"'},
+    )
+
+
 @router.get("/import-xlsx/template")
 def get_xlsx_template() -> Response:
     """Return a CSV template with the workflow-importer column headers

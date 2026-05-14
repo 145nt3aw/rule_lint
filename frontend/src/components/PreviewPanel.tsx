@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { previewMask } from "../api";
+import { cfpanelTemplateUrl, cftestTemplateUrl, previewMask } from "../api";
 import type { PreviewResult } from "../types";
 import { MaskGrid } from "./MaskGrid";
 
@@ -223,6 +223,13 @@ export function PreviewPanel() {
         >
           Load test catalogue (CFtest.tsv)…
         </button>
+        <a
+          href={cftestTemplateUrl()}
+          download="CFtest.tsv"
+          style={{ fontSize: 12, color: "var(--accent)" }}
+        >
+          template ↓
+        </a>
         <input
           ref={cftestInputRef}
           type="file"
@@ -237,6 +244,13 @@ export function PreviewPanel() {
         >
           Load panel catalogue (CFpanel.tsv)…
         </button>
+        <a
+          href={cfpanelTemplateUrl()}
+          download="CFpanel.tsv"
+          style={{ fontSize: 12, color: "var(--accent)" }}
+        >
+          template ↓
+        </a>
         <input
           ref={cfpanelInputRef}
           type="file"

@@ -94,6 +94,14 @@ export function templateUrl(): string {
   return `${API}/import-xlsx/template`;
 }
 
+export function cftestTemplateUrl(): string {
+  return `${API}/preview/cftest-template`;
+}
+
+export function cfpanelTemplateUrl(): string {
+  return `${API}/preview/cfpanel-template`;
+}
+
 export async function previewMask(
   text: string,
   gridWidth = 120,
