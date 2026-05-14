@@ -4,6 +4,7 @@ import type {
   FileLintResult,
   FixResult,
   ImportResult,
+  PreviewResult,
 } from "./types";
 
 // Backend lives at /api both in dev (via Vite proxy) and prod (same origin).
@@ -91,6 +92,19 @@ export async function importXlsxZip(file: File): Promise<Blob> {
 
 export function templateUrl(): string {
   return `${API}/import-xlsx/template`;
+}
+
+export async function previewMask(
+  text: string,
+  gridWidth = 120,
+  gridHeight = 25,
+): Promise<PreviewResult> {
+  const resp = await fetch(`${API}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, grid_width: gridWidth, grid_height: gridHeight }),
+  });
+  return jsonOrThrow(resp);
 }
 
 export async function fetchCodes(): Promise<CodeEntry[]> {

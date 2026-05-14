@@ -308,3 +308,79 @@ footer {
   font-size: 12px;
   text-align: center;
 }
+
+/* ---------- mask previewer ---------- */
+
+.preview-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.preview-editor textarea {
+  width: 100%;
+  min-height: 480px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--panel);
+  color: var(--text);
+  resize: vertical;
+}
+
+.preview-render {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 8px 4px;
+  border-radius: 6px;
+  overflow: auto;
+  min-height: 480px;
+}
+
+.mask-grid {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.15em;
+  letter-spacing: 0;
+}
+
+.mask-grid-header,
+.mask-row {
+  display: flex;
+  white-space: pre;
+}
+
+.mask-rule-corner,
+.mask-rule-y,
+.mask-rule {
+  color: #6a6a6a;
+  font-size: 11px;
+}
+
+.mask-row-body {
+  display: inline-flex;
+}
+
+.cell {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  color: #d4d4d4;
+}
+
+.cell-text {
+  color: #ffffff;
+}
+
+.cell-field {
+  color: #4ec9b0;        /* teal — placeholder fields stand out */
+}
+
+.cell-line,
+.cell-box {
+  color: #6a9955;        /* green — drawn structure */
+}

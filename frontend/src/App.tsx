@@ -14,6 +14,7 @@ import {
   LintOptionsBar,
   type LintOptionsState,
 } from "./components/LintOptionsBar";
+import { PreviewPanel } from "./components/PreviewPanel";
 import { Summary } from "./components/Summary";
 import { WorkflowImportPanel } from "./components/WorkflowImportPanel";
 import type {
@@ -23,7 +24,7 @@ import type {
   ImportResult,
 } from "./types";
 
-type Tab = "single" | "batch" | "workflow" | "codes";
+type Tab = "single" | "batch" | "workflow" | "preview" | "codes";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("single");
@@ -146,6 +147,12 @@ export function App() {
           Workflow import
         </button>
         <button
+          className={tab === "preview" ? "active" : ""}
+          onClick={() => setTab("preview")}
+        >
+          Mask preview
+        </button>
+        <button
           className={tab === "codes" ? "active" : ""}
           onClick={() => setTab("codes")}
         >
@@ -153,7 +160,7 @@ export function App() {
         </button>
       </div>
 
-      {tab !== "codes" && tab !== "workflow" && (
+      {tab !== "codes" && tab !== "workflow" && tab !== "preview" && (
         <LintOptionsBar value={options} onChange={setOptions} />
       )}
 
@@ -306,6 +313,8 @@ export function App() {
           )}
         </>
       )}
+
+      {tab === "preview" && <PreviewPanel />}
 
       {tab === "codes" && <CodesPanel />}
 

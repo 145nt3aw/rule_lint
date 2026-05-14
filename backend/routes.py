@@ -20,6 +20,8 @@ from rule_lint import (
     build_suppress_map, lint, load_testlist,
 )
 
+from backend.preview import render_mask
+
 
 router = APIRouter()
 
@@ -95,6 +97,37 @@ class ImportResult(BaseModel):
     issues: List[ImportIssueOut]
     total_errors: int
     total_warnings: int
+
+
+class RenderCmdOut(BaseModel):
+    x: int
+    y: int
+    kind: str
+    text: str = ""
+    width: int = 0
+    height: int = 0
+    colour: Optional[str] = None
+    bold: bool = False
+    source_line: int = 0
+
+
+class PreviewWarningOut(BaseModel):
+    line: int
+    message: str
+
+
+class PreviewResultOut(BaseModel):
+    grid_width: int
+    grid_height: int
+    branches_expanded: int
+    commands: List[RenderCmdOut]
+    warnings: List[PreviewWarningOut]
+
+
+class PreviewRequest(BaseModel):
+    text: str
+    grid_width: int = 120
+    grid_height: int = 25
 
 
 # ---------------------------------------------------------- helpers
@@ -216,6 +249,39 @@ async def lint_single(
         eqtype=_normalise_eqtype(eqtype),
         strict=strict,
         testlist=tl_set,
+    )
+
+
+@router.post("/preview", response_model=PreviewResultOut)
+def preview(req: PreviewRequest) -> PreviewResultOut:
+    """Static-walk a .mask source and return positioned render commands.
+
+    Lightweight, called on every keystroke (debounced by the frontend).
+    All branches of every `if` are walked, so the preview is a superset.
+    """
+    if len(req.text) > _MAX_FILE_BYTES:
+        raise HTTPException(413, "Mask source exceeds 5 MiB cap.")
+    gw = max(20, min(req.grid_width, 200))
+    gh = max(5, min(req.grid_height, 100))
+    try:
+        result = render_mask(req.text, grid_width=gw, grid_height=gh)
+    except Exception as exc:   # noqa: BLE001
+        # Fall back to a 400 with the parser-level error rather than 500.
+        raise HTTPException(400, f"Mask parse failed: {exc}")
+    return PreviewResultOut(
+        grid_width=result.grid_width,
+        grid_height=result.grid_height,
+        branches_expanded=result.branches_expanded,
+        commands=[
+            RenderCmdOut(x=c.x, y=c.y, kind=c.kind, text=c.text,
+                         width=c.width, height=c.height, colour=c.colour,
+                         bold=c.bold, source_line=c.source_line)
+            for c in result.commands
+        ],
+        warnings=[
+            PreviewWarningOut(line=w.line, message=w.message)
+            for w in result.warnings
+        ],
     )
 
 

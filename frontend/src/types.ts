@@ -67,3 +67,28 @@ export interface ImportResult {
   total_errors: number;
   total_warnings: number;
 }
+
+export interface RenderCmd {
+  x: number;
+  y: number;
+  kind: "text" | "field" | "line" | "box";
+  text: string;
+  width: number;
+  height: number;
+  colour?: string;
+  bold: boolean;
+  source_line: number;
+}
+
+export interface PreviewWarning {
+  line: number;
+  message: string;
+}
+
+export interface PreviewResult {
+  grid_width: number;
+  grid_height: number;
+  branches_expanded: number;
+  commands: RenderCmd[];
+  warnings: PreviewWarning[];
+}

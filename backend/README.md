@@ -8,11 +8,16 @@ alongside the React frontend, but works fine standalone for local dev.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET  | `/api/health`       | Liveness probe — returns `{"status":"ok",...}` |
-| GET  | `/api/codes`        | Full ISSUE_CODES registry as JSON (for the help panel) |
-| GET  | `/api/eqtypes`      | Recognised equation-type aliases for the UI dropdown |
-| POST | `/api/lint`         | Lint one `.eq` file (multipart upload) |
-| POST | `/api/lint-batch`   | Lint every rule file inside an uploaded `.zip` |
+| GET  | `/api/health`                | Liveness probe — returns `{"status":"ok",...}` |
+| GET  | `/api/codes`                 | Full ISSUE_CODES registry as JSON (for the help panel) |
+| GET  | `/api/eqtypes`               | Recognised equation-type aliases for the UI dropdown |
+| POST | `/api/lint`                  | Lint one `.eq` file (multipart upload) |
+| POST | `/api/lint-batch`            | Lint every rule file inside an uploaded `.zip` |
+| POST | `/api/fix`                   | Run safe auto-fixes against one `.eq`, return patched text |
+| GET  | `/api/import-xlsx/template`  | Download the workflow CSV starter template |
+| POST | `/api/import-xlsx`           | Parse a workflow `.xlsx`/`.csv`, return generated `.eq` content inline |
+| POST | `/api/import-xlsx/zip`       | Same parse, returns a single `.zip` download |
+| POST | `/api/preview`               | Static-walk a `.mask`, return positioned render commands for live preview |
 
 `POST /api/lint` form fields:
 - `file` (required) — the rule file
@@ -45,6 +50,16 @@ cd frontend && npm install && npm run dev
 
 The Vite dev server (port 5173) hot-reloads UI changes while uvicorn's
 `--reload` picks up Python changes.
+
+`POST /api/preview` body (JSON):
+- `text` (required) — the `.mask` source
+- `grid_width`, `grid_height` (optional) — default 120×25, clamped to [20–200]×[5–100]
+
+Response shape — see [`routes.py`](routes.py) (`PreviewResultOut`,
+`RenderCmdOut`) and the TypeScript mirror in
+[`frontend/src/types.ts`](../frontend/src/types.ts). Each command is a
+`{x, y, kind, text, …, source_line}` record. The renderer walks all
+`if` branches (commands may overlap — last-writer-wins on the grid).
 
 ## Limits
 
