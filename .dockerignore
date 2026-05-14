@@ -1,0 +1,20 @@
+# Keep the build context small + reproducible
+.git/
+.github/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+.venv/
+venv/
+env/
+build/
+dist/
+*.spec.backup
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.idea/
+.vscode/
+*.swp
+.DS_Store

@@ -29,3 +29,8 @@ Thumbs.db
 
 # Local config
 .rule_lint_baseline.json
+
+# Frontend (web UI)
+node_modules/
+.vite/
+*.tsbuildinfo

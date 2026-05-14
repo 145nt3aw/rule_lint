@@ -8,9 +8,12 @@ Available as:
 - A **command-line tool** for developers and CI ([docs/USER_GUIDE.md](docs/USER_GUIDE.md))
 - A **standalone GUI app** for end users on macOS and Windows 11
   ([docs/PACKAGING.md](docs/PACKAGING.md))
+- A **containerised web app** for shared / multi-user deployments
+  ([backend/README.md](backend/README.md), see "Web UI" below)
 
-Zero runtime dependencies — pure Python 3.7+ with stdlib only. The packaged
-binaries bundle their own Python.
+The linter core is zero runtime dependencies — pure Python 3.7+ with stdlib
+only. The packaged binaries bundle their own Python. The web app adds
+FastAPI on the backend and React on the frontend.
 
 ---
 
@@ -51,6 +54,37 @@ structured spreadsheet of rules into draft `.eq` files, grouped by
 **Req Add** / **Req Delete** / **Modify** (the last split by Department).
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md#workflow-xlsx-importer) for the
 column schema and the trigger/action DSL.
+
+---
+
+## Web UI (containerised)
+
+A FastAPI + React front-end for shared / multi-user deployments. Same
+linter core as the CLI and desktop GUI; supports single-file and zip
+upload flows.
+
+```bash
+# Build + run in Docker (binds http://localhost:8000)
+docker compose up --build
+
+# Or build the image manually
+docker build -t rule-lint .
+docker run --rm -p 8000:8000 rule-lint
+```
+
+Local dev (no Docker):
+
+```bash
+# Backend on :8000
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+uvicorn backend.app:app --reload --port 8000
+
+# Frontend on :5173 (Vite proxies /api → :8000)
+cd frontend && npm install && npm run dev
+```
+
+Full backend API reference: [backend/README.md](backend/README.md).
 
 ## What it checks
 
@@ -105,10 +139,15 @@ require a human eye.
 .
 ├── rule_lint.py              CLI linter (the main tool)
 ├── rule_lint_gui.py          Tkinter GUI wrapper
+├── rule_lint_xlsx.py         Workflow XLSX → .eq importer (used by GUI)
 ├── rule_catalogue.py         Auto-generated catalogue of ~352 subroutines
 ├── gen_rwf_catalogue.py      Generator for the catalogue (reads src/eq.c)
 ├── rule_lint.spec            PyInstaller build spec
 ├── build_release.py          One-command build script
+├── backend/                  FastAPI service (web UI backend)
+├── frontend/                 React + Vite + TypeScript (web UI)
+├── Dockerfile                Multi-stage build for the web UI
+├── docker-compose.yml        One-command web UI deployment
 ├── docs/
 │   ├── USER_GUIDE.md         Full CLI reference + examples
 │   ├── PACKAGING.md          How to build + distribute binaries

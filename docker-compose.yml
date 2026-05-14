@@ -1,0 +1,11 @@
+# docker compose up   — builds and runs the web UI on http://localhost:8000
+# docker compose down — stops and removes the container
+
+services:
+  rule-lint:
+    build: .
+    image: rule-lint:latest
+    container_name: rule-lint
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

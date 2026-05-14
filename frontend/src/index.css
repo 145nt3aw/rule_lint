@@ -1,0 +1,310 @@
+:root {
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --border: #d8d8d8;
+  --text: #222;
+  --muted: #666;
+  --error: #cc3333;
+  --warning: #cc8a00;
+  --info: #2266cc;
+  --accent: #1f6feb;
+  --accent-hover: #1858bf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 80px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+}
+
+header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+header .subtitle {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  background: none;
+  border: none;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tabs button:hover {
+  color: var(--text);
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.options select,
+.options input[type="file"] {
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.dropzone {
+  border: 2px dashed var(--border);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+  transition: background 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+
+.dropzone:hover,
+.dropzone.dragging {
+  border-color: var(--accent);
+  background: #f0f6ff;
+  color: var(--text);
+}
+
+.dropzone strong {
+  color: var(--text);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.dropzone .hint {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.run-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0;
+}
+
+.run-row .picked {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button.primary:hover {
+  background: var(--accent-hover);
+}
+
+button.primary:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+.summary {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.summary .pill {
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: #eee;
+  color: var(--text);
+}
+
+.summary .pill.error {
+  background: #ffe1e1;
+  color: var(--error);
+}
+
+.summary .pill.warning {
+  background: #fff3d6;
+  color: var(--warning);
+}
+
+.summary .pill.info {
+  background: #e1ecff;
+  color: var(--info);
+}
+
+.summary .pill.clean {
+  background: #ddf6dd;
+  color: #1d6f1d;
+}
+
+table.issues {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+table.issues th,
+table.issues td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+table.issues th {
+  background: #f4f4f4;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+table.issues tr:last-child td {
+  border-bottom: none;
+}
+
+table.issues td.severity {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+table.issues td.severity.error {
+  color: var(--error);
+}
+
+table.issues td.severity.warning {
+  color: var(--warning);
+}
+
+table.issues td.severity.info {
+  color: var(--info);
+}
+
+table.issues td.loc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+table.issues td.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+
+.file-block {
+  margin-bottom: 24px;
+}
+
+.file-block h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.error-banner {
+  padding: 12px 16px;
+  background: #ffe1e1;
+  border: 1px solid #f5b5b5;
+  color: var(--error);
+  border-radius: 6px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.codes-table {
+  font-size: 13px;
+}
+
+.codes-table td.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  width: 110px;
+  white-space: nowrap;
+}
+
+.codes-table td.sev {
+  width: 90px;
+  text-transform: capitalize;
+}
+
+footer {
+  margin-top: 40px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
